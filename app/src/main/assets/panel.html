@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Command Executor</title>
+<style>
+:root{--bg:#f3f1ec;--surf:#fff;--ink:#1b2321;--mute:#66706c;--line:#d9d6ce;--acc:#0f766e;--acc-ink:#fff;--ok:#0f766e;--err:#b42318;--log:#14201d;--logink:#d6efe6;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1514;--surf:#16201e;--ink:#e6efec;--mute:#8a9a95;--line:#26332f;--acc:#2dd4bf;--acc-ink:#04201c;--ok:#2dd4bf;--err:#f97066;--log:#0a100f;--logink:#c9e8de}}
+:root[data-theme="dark"]{--bg:#0e1514;--surf:#16201e;--ink:#e6efec;--mute:#8a9a95;--line:#26332f;--acc:#2dd4bf;--acc-ink:#04201c;--ok:#2dd4bf;--err:#f97066;--log:#0a100f;--logink:#c9e8de}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+main{max-width:520px;margin:0 auto;padding:14px 14px 28px;display:flex;flex-direction:column;gap:14px}
+header{display:flex;justify-content:space-between;align-items:center}
+h1{font-size:20px;margin:0;font-weight:700}
+.status{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--mute)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--ok)}
+.dot.off{background:var(--err)}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.sw{border:1px solid var(--line);background:var(--surf);border-radius:10px;padding:8px 12px;min-height:44px}
+.log{background:var(--log);color:var(--logink);border-radius:14px;padding:12px;height:42vh;min-height:220px;overflow-y:auto;font:14px/1.5 ui-monospace,Menlo,Consolas,monospace}
+.log div{margin-bottom:4px;word-break:break-word}
+.log .cmd{color:#fff;font-weight:700}
+.log .err{color:#ff9b92}
+.log .sys{opacity:.6}
+.run{display:flex;gap:8px}
+input{flex:1;min-width:0;font:16px ui-monospace,Menlo,Consolas,monospace;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--surf);color:var(--ink);min-height:48px}
+.go{background:var(--acc);color:var(--acc-ink);border:0;border-radius:12px;padding:0 20px;font-weight:700;min-height:48px}
+.row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.chip{flex:none;border:1px solid var(--line);background:var(--surf);border-radius:999px;padding:9px 14px;min-height:44px}
+.chip.add{border-style:dashed;color:var(--mute)}
+.lbl{font-size:14px;color:var(--mute);margin:0 0 6px}
+.hist button{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:11px 2px;font:14px ui-monospace,Menlo,Consolas,monospace;color:var(--mute);min-height:44px}
+.note{font-size:13px;color:var(--mute)}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>Command Executor</h1>
+<button class="sw" id="conn" aria-label="Toggle connection"><span class="status"><span class="dot" id="dot"></span><span id="st">Connected</span></span></button>
+</header>
+
+<div class="log" id="log" role="log" aria-live="polite"></div>
+
+<div class="run">
+<input id="in" placeholder="Type a command, e.g. list" autocapitalize="off" autocomplete="off" spellcheck="false" aria-label="Command">
+<button class="go" id="go">Run</button>
+</div>
+
+<div>
+<p class="lbl">Quick commands (tap to run, hold to remove)</p>
+<div class="row" id="chips"></div>
+</div>
+
+<div>
+<p class="lbl">Recent</p>
+<div class="hist" id="hist"></div>
+</div>
+
+<p class="note">Demo mode: commands run against a simulated server. Connect a real server through a backend (RCON or an API) to execute for real.</p>
+</main>
+
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+var logEl=$('log'),inp=$('in'),chipsEl=$('chips'),histEl=$('hist');
+var online=true,history=[],players=['Alex','Mira','Jun'];
+var chips=['list','save-all','time set day','weather clear'];
+try{var s=localStorage.getItem('chips');if(s)chips=JSON.parse(s)}catch(e){}
+function saveChips(){try{localStorage.setItem('chips',JSON.stringify(chips))}catch(e){}}
+
+function line(t,c){var d=document.createElement('div');if(c)d.className=c;d.textContent=t;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight}
+
+function respond(cmd){
+var p=cmd.trim().split(/\s+/),c=p[0].toLowerCase(),a=p.slice(1);
+switch(c){
+case 'list':return 'There are '+players.length+' players online: '+players.join(', ');
+case 'say':return a.length?'[Server] '+a.join(' '):['err','Usage: say <message>'];
+case 'kick':if(!a[0])return['err','Usage: kick <player>'];
+ var i=players.indexOf(a[0]);if(i<0)return['err','Player not found: '+a[0]];players.splice(i,1);return 'Kicked '+a[0];
+case 'ban':return a[0]?'Banned '+a[0]:['err','Usage: ban <player>'];
+case 'whitelist':return a[0]==='add'&&a[1]?'Added '+a[1]+' to the whitelist':['err','Usage: whitelist add <player>'];
+case 'time':return a[0]==='set'&&a[1]?'Time set to '+a[1]:['err','Usage: time set <day|night|value>'];
+case 'weather':return a[0]?'Weather set to '+a[0]:['err','Usage: weather <clear|rain|thunder>'];
+case 'save-all':return 'Saved the game';
+case 'stop':return 'Stopping server...';
+case 'help':return 'Commands: list, say, kick, ban, whitelist, time, weather, save-all, stop';
+default:return['err','Unknown command: '+c+'. Type help.'];
+}}
+
+function run(cmd){
+cmd=cmd.trim();if(!cmd)return;
+line('> '+cmd,'cmd');
+if(!online){line('Not connected. Tap the status to reconnect.','err');return}
+var r=respond(cmd);
+setTimeout(function(){
+if(Array.isArray(r))line(r[1],r[0]);else line(r);
+},180);
+history=history.filter(function(h){return h!==cmd});history.unshift(cmd);history=history.slice(0,6);
+drawHist();inp.value='';
+}
+
+function drawChips(){
+chipsEl.innerHTML='';
+chips.forEach(function(c,i){
+var b=document.createElement('button');b.className='chip';b.textContent=c;
+var t;
+b.addEventListener('pointerdown',function(){t=setTimeout(function(){t=null;chips.splice(i,1);saveChips();drawChips();line('Removed quick command: '+c,'sys')},650)});
+b.addEventListener('pointerup',function(){if(t){clearTimeout(t);run(c)}});
+b.addEventListener('pointerleave',function(){clearTimeout(t);t=null});
+chipsEl.appendChild(b);
+});
+var a=document.createElement('button');a.className='chip add';a.textContent='+ Save current';
+a.addEventListener('click',function(){var v=inp.value.trim();if(v&&chips.indexOf(v)<0){chips.push(v);saveChips();drawChips()}else line('Type a command first, then tap Save current.','sys')});
+chipsEl.appendChild(a);
+}
+
+function drawHist(){
+histEl.innerHTML='';
+if(!history.length){var e=document.createElement('div');e.className='note';e.textContent='Commands you run appear here.';histEl.appendChild(e);return}
+history.forEach(function(h){var b=document.createElement('button');b.textContent=h;b.addEventListener('click',function(){inp.value=h;inp.focus()});histEl.appendChild(b)});
+}
+
+$('go').addEventListener('click',function(){run(inp.value)});
+inp.addEventListener('keydown',function(e){if(e.key==='Enter')run(inp.value)});
+$('conn').addEventListener('click',function(){
+online=!online;$('dot').className='dot'+(online?'':' off');$('st').textContent=online?'Connected':'Offline';
+line(online?'Reconnected.':'Disconnected.','sys');
+});
+line('Connected to demo server. Type help for commands.','sys');
+drawChips();drawHist();
+})();
+</script>
+</body>
+</html>
